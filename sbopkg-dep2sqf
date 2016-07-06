@@ -39,34 +39,97 @@ function print_dep_tree {
 
     [[ ! -f $topdep ]] && return
     
-    print_blank_n $DEP_TREE_LVL
+    #print_blank_n $DEP_TREE_LVL
+    echo -n "$DEP_TREE_GUIDE"
     echo "$topdep"
-    DEP_TREE_LVL=$(( DEP_TREE_LVL + 8 ))
+    #DEP_TREE_LVL=$(( DEP_TREE_LVL + 8 ))
+    DEP_TREE_GUIDE="${DEP_TREE_GUIDE} |      "
 
     while read l
     do 
 	if [[ $l == "REQUIRED:" || -z $l ]]; then
-	    print_blank_n $DEP_TREE_LVL
+	    #print_blank_n $DEP_TREE_LVL
+	    echo -n "$DEP_TREE_GUIDE"
 	    echo "$l"
 	elif [[ $l == "OPTIONAL:" ]]; then
 	    (( USE_OPTPKGS == 0 )) && break
-	    print_blank_n $DEP_TREE_LVL
+	    #print_blank_n $DEP_TREE_LVL
+	    echo -n "$DEP_TREE_GUIDE"
 	    echo "$l"
 	elif [[ $l == "BUILDOPTS:" ]]; then
 	    break
 	else
-	    check_is_entry $l 
+	   c heck_is_entry $l 
 	    if (( $? == 1  )); then
 		print_dep_tree $l
 	    else
-		print_blank_n $DEP_TREE_LVL
+		#print_blank_n $DEP_TREE_LVL
+		echo -n "$DEP_TREE_GUIDE"
 		echo $l
 	    fi
 	fi
     done <$topdep
     
-    DEP_TREE_LVL=$(( DEP_TREE_LVL - 8 ))
+    #DEP_TREE_LVL=$(( DEP_TREE_LVL - 8 ))
+    DEP_TREE_GUIDE=${DEP_TREE_GUIDE::-8}
 }
+
+################################################################################
+#
+################################################################################
+function __graph_dep_tree {
+
+    local topdep=$1
+    local _topdep="${topdep//-/_}"
+    echo "node_$_topdep [ label=\"${topdep}\" ];"  >> .nodes
+
+    [[ ! -f $topdep ]] && return
+
+    while read l
+    do 
+	l=$(echo ${l%%#*})
+	if [[ $l == "REQUIRED:" || -z $l ]]; then
+	    #echo "\"$topdep\" -> \"$l\"" >> .links
+	    /bin/true
+	elif [[ $l == "OPTIONAL:" ]]; then
+	    (( USE_OPTPKGS == 0 )) && break
+	    #echo "\"$topdep\" -> \"$l\"" >> .links
+	elif [[ $l == "BUILDOPTS:" ]]; then
+	    break
+	else
+	    check_is_entry $l 
+	    if (( $? == 1  )); then
+		echo "\"$_topdep\" -> \"${l//-/_}\"" >> .links
+		__graph_dep_tree $l
+	    fi
+	fi
+    done <$topdep
+}
+
+function graph_dep_tree {
+    local topdep=$1
+
+    rm -f .nodes .links
+    __graph_dep_tree $topdep
+
+    cat <<"EOT" > dep_tree.dot
+digraph AcademicPedigree
+{
+    # graph [ranksep="4",nodesep="0.4"];
+    compound=true;
+    node[fontsize=8,shape=rectangle,style=rounded];
+
+EOT
+
+    tac .nodes >> dep_tree.dot
+    tac .links >> dep_tree.dot
+
+    echo "}" >> dep_tree.dot
+
+}
+
+
+
 
 ################################################################################
 # Parses a dependency file and inserts the package name into a global dependency 
@@ -441,11 +504,13 @@ OPTIONAL_BLOCK=2
 BUILDOPTS_BLOCK=3
 
 # Set defaults
+ACTION_GRAPH=0
 ACTION_PRINT=1
 ACTION_GENSQF=2
 ACTION_GENSQF_RM=3
 ACTION_GENSQF_LIST=4
 DEP_TREE_LVL=0
+DEP_TREE_GUIDE=""
 
 USE_OPTPKGS=0
 CHECK_INST_EXT=0
@@ -465,6 +530,10 @@ while (( $# > 0 )); do
 	    ;;
 	"-c")
 	    CHECK_INST_EXT=1
+	    shift 1
+	    ;;
+	"-g")
+	    ACTION=$ACTION_GRAPH
 	    shift 1
 	    ;;
 	"-h")
@@ -532,6 +601,8 @@ rm -f $SQF
 
 if (( $ACTION == $ACTION_PRINT )); then
     print_dep_tree $TOPDEP
+elif (( $ACTION == $ACTION_GRAPH )); then
+    graph_dep_tree $TOPDEP
 elif (( $ACTION == $ACTION_GENSQF_RM )); then
     # Enable external installed checking
     parse_dep_file $TOPDEP $DEP 1> /dev/null
