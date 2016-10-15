@@ -23,6 +23,7 @@ apsw
 arno-iptables-firewall
 arpack-ng
 atlas
+audit
 avahi
 backports-ssl-match-hostname
 bibletime
@@ -157,6 +158,7 @@ openmpi
 opus
 orc
 paraview
+perf
 perl-AnyEvent
 perl-AnyEvent-I3
 perl-Authen-SASL
