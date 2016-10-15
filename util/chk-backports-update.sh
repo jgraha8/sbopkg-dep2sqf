@@ -1,12 +1,12 @@
 #!/bin/bash
 #
-# Simple script to check packages in a BACKPORTS list file for updates 
-# between the backports git tree and the upstream git tree.
-#
 # Copyright (C) 2016
 #
 # Authors:
 #   Jason Graham <jgraha8@gmail.com>
+#
+# Simple script to check packages in the BACKPORTS list file for updates 
+# between the backports git tree and the upstream git tree.
 #
 
 function cleanup()
