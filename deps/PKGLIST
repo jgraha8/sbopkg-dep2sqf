@@ -25,6 +25,8 @@ arpack-ng
 atlas
 audit
 avahi
+b43-firmware
+b43-fwcutter
 backports-ssl-match-hostname
 bibletime
 blas
