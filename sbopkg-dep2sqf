@@ -12,6 +12,8 @@ function print_usage {
     echo "  -P          Select packages which rely on all a particular package or meta package"
     echo "              Enables option -N (thus assumes all dependencies are met; used for rebuilding"
     echo "              parent pacakges; this option respects option -o"
+    echo "  -u          Check if depenency (required and optional) are already installed; useful"
+    echo "              for updating packages"
     echo "  -R          Review the package README, info, and dep files"
     echo "  -a          Add package to package list ($PKGLIST)"
     echo "  -c          Check if packages are already installed from non-SBo sources"
@@ -173,6 +175,16 @@ function create_dep_file {
 }
 
 declare -i dep_count=0
+declare -i dep_level=0
+declare -i dep_level_top=1
+
+function incr_dep_level {
+    (( dep_level++ ))
+}
+
+function decr_dep_level {
+    (( dep_level-- ))
+}
 
 ################################################################################
 # Parses a dependency file and inserts the package name into a global dependency 
@@ -187,11 +199,15 @@ function parse_dep_file {
     local block=0
 
     (( dep_count++ ))
+    incr_dep_level 
 
     # First find if it is not a metapackage 
     if ! check_is_metapkg $topdep; then
 	if (( $CHECK_INST == 1 && dep_count != 1 )); then
-	    check_is_inst $topdep $CHECK_INST_SBO_ONLY && return
+	    if check_is_inst $topdep $CHECK_INST_SBO_ONLY; then
+		decr_dep_level
+		return
+	    fi
 	fi
 
 	[ ! -f $topdep ] && request_create_dep_file $topdep
@@ -210,14 +226,25 @@ function parse_dep_file {
 	# Only write the pkg name if not a metapkg
 	echo "$topdep $(get_buildopts $topdep)" >> $dep
 
-	(( NO_DEPS == 1 )) && return
+	if (( NO_DEPS == 1 )); then
+	    decr_dep_level
+	    return
+	fi
+    else
+	# For a metapackage we set the top dep we bump by 1
+	if (( dep_level == 1 )); then
+	    (( dep_level_top++ ))
+	fi
     fi
+
+    echo "dep_level, dep_level_top, topdep = $dep_level, $dep_level_top, $topdep" 
 
     if [[ ! -f $topdep ]]; then 
 	mesg_warn "$topdep dependency file not found--assuming no dependencies"
+	decr_dep_level
 	return
     fi
-    
+
     local in_block=0
     local l
     while read l
@@ -242,16 +269,32 @@ function parse_dep_file {
 	if (( in_block == REQUIRED_BLOCK )) || \
            (( in_block == OPTIONAL_BLOCK && USE_OPTPKGS == 1 )); then
 
-	    if check_is_entry $l; then 
-	       if (( PARSE_DEP_RECURSIVE == 1 )); then
-		   parse_dep_file $l $dep
-	       else
-		   echo "$l $(get_buildopts $l)" >> $dep
-	       fi
+	    if check_is_entry $l; then
+
+		# Check if we are to skip installed dependencies
+		if (( $CHECK_INST_DEP == 1 && dep_level >= dep_level_top )); then
+		    if check_is_inst $l 1; then
+			continue
+		    fi
+		fi
+		
+		if (( PARSE_DEP_RECURSIVE == 1 )); then
+		    parse_dep_file $l $dep
+		else
+		    echo "$l $(get_buildopts $l)" >> $dep
+		fi
 	   fi
 	fi
 
     done <$topdep
+
+    decr_dep_level
+
+    if check_is_metapkg $topdep; then
+	if (( dep_level == 1 )); then
+	    (( dep_level_top-- ))
+	fi
+    fi
 }
 
 ################################################################################
@@ -837,6 +880,7 @@ USE_OPTPKGS=0
 USE_BUILDOPTS=1
 CHECK_INST_EXT=0
 CHECK_INST_ALL=0
+CHECK_INST_DEP=0
 CHECK_INST=0
 CHECK_INST_SBO_ONLY=""
 NO_DEPS=0
@@ -869,6 +913,10 @@ while (( $# > 0 )); do
 	    ;;
 	"-R")
 	    ACTION=$ACTION_REVIEW_PKG
+	    shift 1
+	    ;;
+	"-u")
+	    CHECK_INST_DEP=1
 	    shift 1
 	    ;;
 	"-a")
@@ -933,16 +981,26 @@ if (( $ACTION == $ACTION_GENSQF_RM )); then
     CHECK_INST_ALL=0
 fi
 
+# if (( $CHECK_INST_DEP == 1 )); then
+#     CHECK_INST=1
+# fi
+
 # Set the installation check flags 
 if (( $CHECK_INST_EXT == 1 )); then
     CHECK_INST=1
     CHECK_INST_SBO_ONLY=0 # Exclude SBo packages
 fi
+
 if (( $CHECK_INST_ALL == 1 )); then
     if (( $CHECK_INST_EXT == 1 )); then
 	echo -en "${COLOR_INFO}[INFO]${COLOR_END} "
 	echo "ignoring option -c"
 	CHECK_INST_EXT=0
+    fi
+    if (( $CHECK_INST_DEP == 1 )); then
+	echo -en "${COLOR_INFO}[INFO]${COLOR_END} "
+	echo "ignoring option -u"
+	CHECK_INST_DEP=0
     fi
     CHECK_INST=1
     CHECK_INST_SBO_ONLY="" # No setting for SBo only, so this will include all packages
